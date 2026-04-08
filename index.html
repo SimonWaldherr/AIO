@@ -10,22 +10,45 @@
         <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     </head>
     <body>
-        <!-- API Key Modal -->
-        <div class="modal fade" id="apiKeyModal" tabindex="-1" aria-hidden="true">
+        <!-- Settings Modal -->
+        <div class="modal fade" id="settingsModal" tabindex="-1" aria-hidden="true">
             <div class="modal-dialog">
                 <div class="modal-content">
                     <div class="modal-header">
-                        <h5 class="modal-title">Configure OpenAI API Key</h5>
+                        <h5 class="modal-title"><i class="fas fa-cog me-2"></i>AI Provider Settings</h5>
+                        <button type="button" class="btn-close" id="settingsModalClose" aria-label="Close"></button>
                     </div>
                     <div class="modal-body">
-                        <div class="form-group mb-3">
-                            <label for="apiKeyInput" class="form-label">OpenAI API Key</label>
-                            <input type="password" id="apiKeyInput" class="form-control" placeholder="sk-...">
-                            <div class="form-text">Your API key will be stored locally in your browser.</div>
+                        <div class="mb-3">
+                            <label for="providerSelect" class="form-label">AI Provider</label>
+                            <select id="providerSelect" class="form-select">
+                                <option value="openai">OpenAI (GPT)</option>
+                                <option value="anthropic">Anthropic (Claude)</option>
+                                <option value="ollama">Ollama (Local)</option>
+                                <option value="custom">Custom (OpenAI-compatible)</option>
+                            </select>
+                        </div>
+                        <div class="mb-3" id="apiKeyGroup">
+                            <label for="apiKeyInput" class="form-label">API Key</label>
+                            <input type="password" id="apiKeyInput" class="form-control" placeholder="Enter your API key">
+                            <div class="form-text" id="apiKeyHint">Your API key is stored locally in your browser.</div>
+                        </div>
+                        <div class="mb-3" id="baseUrlGroup">
+                            <label for="baseUrlInput" class="form-label">Base URL <span class="text-muted">(optional)</span></label>
+                            <input type="text" id="baseUrlInput" class="form-control" placeholder="https://api.openai.com">
+                            <div class="form-text">Override the default API endpoint. Leave blank to use the provider default.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="modelInput" class="form-label">Model</label>
+                            <input type="text" id="modelInput" class="form-control" placeholder="e.g. gpt-4o">
+                            <div class="form-text" id="modelHint">Leave blank to use the provider's default model.</div>
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-primary" id="saveApiKey">Save & Continue</button>
+                        <button type="button" class="btn btn-secondary" id="cancelSettings">Cancel</button>
+                        <button type="button" class="btn btn-primary" id="saveApiKey">
+                            <i class="fas fa-save me-1"></i>Save Settings
+                        </button>
                     </div>
                 </div>
             </div>
@@ -94,9 +117,14 @@
                                 </div>
                             </div>
 
-                            <button type="button" id="orchestrateBtn" class="btn btn-primary w-100">
-                                <i class="fas fa-play me-2"></i>Start Orchestration
-                            </button>
+                            <div class="d-flex gap-2">
+                                <button type="button" id="orchestrateBtn" class="btn btn-primary flex-grow-1">
+                                    <i class="fas fa-play me-2"></i>Start Orchestration
+                                </button>
+                                <button type="button" id="stopBtn" class="btn btn-danger d-none">
+                                    <i class="fas fa-stop me-2"></i>Stop
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -117,8 +145,16 @@
                 <!-- Right Panel - Results & Execution -->
                 <div class="col-lg-4">
                     <div class="card h-100">
-                        <div class="card-header">
-                            <h5><i class="fas fa-terminal me-2"></i>Execution & Results</h5>
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0"><i class="fas fa-terminal me-2"></i>Execution & Results</h5>
+                            <div class="d-flex gap-1">
+                                <button class="btn btn-outline-secondary btn-sm" id="exportBtn" title="Export results as Markdown">
+                                    <i class="fas fa-download"></i>
+                                </button>
+                                <button class="btn btn-outline-secondary btn-sm" id="clearBtn" title="Clear results">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
                         </div>
                         <div class="card-body">
                             <div id="executionResults" class="execution-results mb-3"></div>
