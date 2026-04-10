@@ -267,15 +267,27 @@ class AIOrchestrator {
         const headers = { 'Content-Type': 'application/json' };
         if (settings.apiKey) headers['Authorization'] = `Bearer ${settings.apiKey}`;
 
-        const response = await fetch(`${baseUrl}/v1/chat/completions`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ model, messages, temperature, max_tokens: 2000 }),
-            signal
-        });
+        let response;
+        try {
+            response = await fetch(`${baseUrl}/v1/chat/completions`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ model, messages, temperature, max_tokens: 2000 }),
+                signal
+            });
+        } catch (networkError) {
+            if (networkError.name === 'AbortError') throw networkError;
+            throw new Error(
+                `Cannot reach ${baseUrl}. ` +
+                `If using Ollama, restart it with: OLLAMA_ORIGINS="*" ollama serve. ` +
+                `If using LM Studio, enable "Allow CORS" in the Local Server settings. ` +
+                `(${networkError.message})`
+            );
+        }
 
         if (!response.ok) {
-            throw new Error(`API error: ${response.status} ${response.statusText}`);
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.error?.message || `API error: ${response.status} ${response.statusText}`);
         }
 
         const data = await response.json();
