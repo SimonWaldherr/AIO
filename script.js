@@ -583,7 +583,7 @@ class AIOrchestrator {
             const b64 = commaIdx >= 0 ? imageData.substring(commaIdx + 1) : imageData;
             const mediaTypeMatch = prefix.match(/:([\w/]+);/);
             if (!mediaTypeMatch) {
-                console.warn('_injectImageAnthropic: could not parse media type from data URL; defaulting to image/jpeg');
+                console.warn(`_injectImageAnthropic: could not parse media type from data URL prefix "${prefix}"; defaulting to image/jpeg`);
             }
             const mediaType = mediaTypeMatch ? mediaTypeMatch[1] : 'image/jpeg';
             lastUser.content = [
@@ -606,8 +606,10 @@ class AIOrchestrator {
                 const results = data.query?.search || [];
                 if (!results.length) return 'No results found.';
                 return results.map(r => {
-                    // Strip all HTML tags from the snippet (including unclosed tags like <script)
-                    const plainSnippet = r.snippet.replace(/<[^>]*>?/gm, '').replace(/</g, '');
+                    // Use DOMParser for robust, safe extraction of plain text from the HTML snippet
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(r.snippet, 'text/html');
+                    const plainSnippet = doc.body.textContent || '';
                     return `**${r.title}**: ${plainSnippet}`;
                 }).join('\n\n');
             } else if (provider === 'brave') {
