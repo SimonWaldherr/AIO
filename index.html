@@ -37,36 +37,123 @@
 
         <!-- Settings Modal -->
         <div class="modal fade" id="settingsModal" tabindex="-1" aria-hidden="true">
-            <div class="modal-dialog">
+            <div class="modal-dialog modal-lg">
                 <div class="modal-content">
                     <div class="modal-header">
-                        <h5 class="modal-title"><i class="fas fa-cog me-2"></i>AI Provider Settings</h5>
+                        <h5 class="modal-title"><i class="fas fa-cog me-2"></i>Settings</h5>
                         <button type="button" class="btn-close" id="settingsModalClose" aria-label="Close"></button>
                     </div>
                     <div class="modal-body">
-                        <div class="mb-3">
-                            <label for="providerSelect" class="form-label">AI Provider</label>
-                            <select id="providerSelect" class="form-select">
-                                <option value="openai">OpenAI (GPT)</option>
-                                <option value="anthropic">Anthropic (Claude)</option>
-                                <option value="ollama">Ollama (Local)</option>
-                                <option value="custom">Custom (OpenAI-compatible)</option>
-                            </select>
-                        </div>
-                        <div class="mb-3" id="apiKeyGroup">
-                            <label for="apiKeyInput" class="form-label">API Key</label>
-                            <input type="password" id="apiKeyInput" class="form-control" placeholder="Enter your API key">
-                            <div class="form-text" id="apiKeyHint">Your API key is stored locally in your browser.</div>
-                        </div>
-                        <div class="mb-3" id="baseUrlGroup">
-                            <label for="baseUrlInput" class="form-label">Base URL <span class="text-muted">(optional)</span></label>
-                            <input type="text" id="baseUrlInput" class="form-control" placeholder="https://api.openai.com">
-                            <div class="form-text">Override the default API endpoint. Leave blank to use the provider default.</div>
-                        </div>
-                        <div class="mb-3">
-                            <label for="modelInput" class="form-label">Model</label>
-                            <input type="text" id="modelInput" class="form-control" placeholder="e.g. gpt-4o">
-                            <div class="form-text" id="modelHint">Leave blank to use the provider's default model.</div>
+                        <ul class="nav nav-tabs mb-3" id="settingsTabs" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#primaryLLMTab" type="button" role="tab">
+                                    <i class="fas fa-robot me-1"></i>Primary LLM
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#secondaryLLMTab" type="button" role="tab">
+                                    <i class="fas fa-robot me-1"></i>Secondary LLM
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#toolsTab" type="button" role="tab">
+                                    <i class="fas fa-tools me-1"></i>Tools &amp; Search
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#routingTab" type="button" role="tab">
+                                    <i class="fas fa-route me-1"></i>Task Routing
+                                </button>
+                            </li>
+                        </ul>
+                        <div class="tab-content">
+                            <!-- Primary LLM Tab -->
+                            <div class="tab-pane fade show active" id="primaryLLMTab" role="tabpanel">
+                                <div class="mb-3">
+                                    <label for="providerSelect" class="form-label">AI Provider</label>
+                                    <select id="providerSelect" class="form-select">
+                                        <option value="openai">OpenAI (GPT)</option>
+                                        <option value="anthropic">Anthropic (Claude)</option>
+                                        <option value="google">Google (Gemini)</option>
+                                        <option value="ollama">Ollama (Local)</option>
+                                        <option value="custom">Custom (OpenAI-compatible)</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3" id="apiKeyGroup">
+                                    <label for="apiKeyInput" class="form-label">API Key</label>
+                                    <input type="password" id="apiKeyInput" class="form-control" placeholder="Enter your API key">
+                                    <div class="form-text" id="apiKeyHint">Your API key is stored locally in your browser.</div>
+                                </div>
+                                <div class="mb-3" id="baseUrlGroup">
+                                    <label for="baseUrlInput" class="form-label">Base URL <span class="text-muted">(optional)</span></label>
+                                    <input type="text" id="baseUrlInput" class="form-control" placeholder="https://api.openai.com">
+                                    <div class="form-text">Override the default API endpoint. Leave blank to use the provider default.</div>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="modelInput" class="form-label">Model</label>
+                                    <input type="text" id="modelInput" class="form-control" placeholder="e.g. gpt-4o">
+                                    <div class="form-text" id="modelHint">Leave blank to use the provider's default model.</div>
+                                </div>
+                            </div>
+
+                            <!-- Secondary LLM Tab -->
+                            <div class="tab-pane fade" id="secondaryLLMTab" role="tabpanel">
+                                <p class="text-muted small mb-3">Optional second LLM for task routing. Leave provider blank to use Primary for all tasks.</p>
+                                <div class="mb-3">
+                                    <label for="providerSelect2" class="form-label">AI Provider</label>
+                                    <select id="providerSelect2" class="form-select">
+                                        <option value="">— Not configured —</option>
+                                        <option value="openai">OpenAI (GPT)</option>
+                                        <option value="anthropic">Anthropic (Claude)</option>
+                                        <option value="google">Google (Gemini)</option>
+                                        <option value="ollama">Ollama (Local)</option>
+                                        <option value="custom">Custom (OpenAI-compatible)</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3" id="apiKeyGroup2">
+                                    <label for="apiKeyInput2" class="form-label">API Key</label>
+                                    <input type="password" id="apiKeyInput2" class="form-control" placeholder="Enter API key">
+                                    <div class="form-text" id="apiKeyHint2">Your API key is stored locally in your browser.</div>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="baseUrlInput2" class="form-label">Base URL <span class="text-muted">(optional)</span></label>
+                                    <input type="text" id="baseUrlInput2" class="form-control" placeholder="https://api.openai.com">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="modelInput2" class="form-label">Model</label>
+                                    <input type="text" id="modelInput2" class="form-control" placeholder="e.g. gpt-4o-mini">
+                                    <div class="form-text" id="modelHint2">Leave blank to use the provider's default model.</div>
+                                </div>
+                            </div>
+
+                            <!-- Tools & Search Tab -->
+                            <div class="tab-pane fade" id="toolsTab" role="tabpanel">
+                                <h6 class="text-muted mb-3"><i class="fas fa-search me-1"></i>Web Search</h6>
+                                <div class="mb-3">
+                                    <label for="searchProvider" class="form-label">Search Provider</label>
+                                    <select id="searchProvider" class="form-select">
+                                        <option value="none">Disabled</option>
+                                        <option value="wikipedia">Wikipedia (Free — no key required)</option>
+                                        <option value="brave">Brave Search (API key required)</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3 d-none" id="searchKeyGroup">
+                                    <label for="searchApiKey" class="form-label">Search API Key</label>
+                                    <input type="password" id="searchApiKey" class="form-control" placeholder="Enter search API key">
+                                    <div class="form-text">Required for paid search providers.</div>
+                                </div>
+                                <hr>
+                                <h6 class="text-muted mb-2"><i class="fas fa-eye me-1"></i>Vision / Multimodal</h6>
+                                <p class="small text-muted">Attach an image in the Task Input panel to use vision. Works with GPT-4o, Claude 3+, and Gemini 1.5+ models automatically.</p>
+                            </div>
+
+                            <!-- Task Routing Tab -->
+                            <div class="tab-pane fade" id="routingTab" role="tabpanel">
+                                <p class="text-muted small mb-3">Configure which LLM profile handles each task type. Secondary LLM must be configured first.</p>
+                                <div id="routingConfig">
+                                    <!-- Populated dynamically by JS -->
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="modal-footer">
@@ -131,6 +218,33 @@
                                 </div>
                             </div>
 
+                            <!-- File & Image Attachments -->
+                            <div class="mb-3">
+                                <label class="form-label d-flex justify-content-between align-items-center">
+                                    <span><i class="fas fa-paperclip me-1"></i>Attachments</span>
+                                    <div class="btn-group btn-group-sm">
+                                        <button type="button" class="btn btn-outline-secondary" id="attachFileBtn" title="Attach text / data file">
+                                            <i class="fas fa-file-alt me-1"></i>File
+                                        </button>
+                                        <button type="button" class="btn btn-outline-secondary" id="attachImageBtn" title="Attach image for Vision">
+                                            <i class="fas fa-image me-1"></i>Image
+                                        </button>
+                                    </div>
+                                </label>
+                                <input type="file" id="fileInput" class="d-none" accept=".txt,.csv,.json,.md,.xml,.yaml,.yml" multiple>
+                                <input type="file" id="imageInput" class="d-none" accept="image/*">
+                                <div id="attachedFiles" class="d-none attached-files mt-1"></div>
+                                <div id="imagePreview" class="d-none mt-1 d-flex align-items-center gap-2">
+                                    <img id="previewImg" class="img-thumbnail" style="max-height:80px;width:auto;" alt="Preview">
+                                    <div>
+                                        <small id="imageName" class="text-muted d-block"></small>
+                                        <button type="button" class="btn btn-sm btn-outline-danger mt-1" id="removeImageBtn">
+                                            <i class="fas fa-times me-1"></i>Remove
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
                             <div class="mb-3">
                                 <div class="form-check">
                                     <input class="form-check-input" type="checkbox" id="enableCodeExecution">
@@ -142,6 +256,12 @@
                                     <input class="form-check-input" type="checkbox" id="enableCanvas">
                                     <label class="form-check-label" for="enableCanvas">
                                         <i class="fas fa-paint-brush me-1"></i>Enable Canvas Access
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="enableWebSearch">
+                                    <label class="form-check-label" for="enableWebSearch">
+                                        <i class="fas fa-search me-1"></i>Enable Web Search
                                     </label>
                                 </div>
                             </div>

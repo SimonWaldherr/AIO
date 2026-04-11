@@ -354,3 +354,35 @@ kbd {
         max-height: 300px;
     }
 }
+
+/* Attached files chip strip */
+.attached-files {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.file-chip {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.78em;
+    padding: 0.25em 0.5em;
+}
+
+/* Image preview in task input */
+#imagePreview img {
+    border-radius: 0.375rem;
+    object-fit: cover;
+}
+
+/* LLM badge on task items */
+.llm-badge {
+    font-size: 0.7em;
+    font-weight: 600;
+}
+
+/* Settings tabs */
+#settingsTabs .nav-link {
+    font-size: 0.9em;
+    padding: 0.4rem 0.75rem;
+}
