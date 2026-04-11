@@ -9,8 +9,32 @@
         <link rel="stylesheet" href="styles.css">
         <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
         <link rel="icon" href="data:,">
+        <script src="marked.min.js"></script>
+        <script src="purify.min.js"></script>
     </head>
     <body>
+        <!-- History Modal -->
+        <div class="modal fade" id="historyModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title"><i class="fas fa-history me-2"></i>Orchestration History</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="historyList"></div>
+                        <p id="historyEmpty" class="text-muted text-center d-none">No history yet. Run an orchestration to see it here.</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-danger btn-sm" id="clearHistoryBtn">
+                            <i class="fas fa-trash me-1"></i>Clear History
+                        </button>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Settings Modal -->
         <div class="modal fade" id="settingsModal" tabindex="-1" aria-hidden="true">
             <div class="modal-dialog">
@@ -58,7 +82,10 @@
         <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
             <div class="container">
                 <a class="navbar-brand" href="#"><i class="fas fa-robot me-2"></i>AI Universal Orchestrator</a>
-                <div class="navbar-nav ms-auto">
+                <div class="navbar-nav ms-auto d-flex flex-row gap-2">
+                    <button class="btn btn-outline-light btn-sm" id="historyBtn" title="Orchestration History">
+                        <i class="fas fa-history"></i> History
+                    </button>
                     <button class="btn btn-outline-light btn-sm" id="configBtn">
                         <i class="fas fa-cog"></i> Settings
                     </button>
@@ -79,6 +106,7 @@
                                 <label for="taskInput" class="form-label">Main Task</label>
                                 <textarea id="taskInput" class="form-control" rows="4" 
                                     placeholder="Describe what you want to accomplish..."></textarea>
+                                <div class="kbd-hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> to start</div>
                             </div>
                             
                             <div class="mb-3">

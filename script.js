@@ -8,11 +8,13 @@ class AIOrchestrator {
         this.enableCodeExecution = false;
         this.enableCanvas = false;
         this.abortController = null;
+        this.currentSessionResults = [];
 
         this.initializeDOM();
         this.setupEventListeners();
         this.loadSettings();
         this.checkApiKey();
+        this.restoreLastTask();
     }
 
     // DOM Initialization
@@ -20,6 +22,9 @@ class AIOrchestrator {
         this.elements = {
             settingsModal: document.getElementById('settingsModal'),
             settingsModalClose: document.getElementById('settingsModalClose'),
+            historyModal: document.getElementById('historyModal'),
+            historyList: document.getElementById('historyList'),
+            historyEmpty: document.getElementById('historyEmpty'),
             providerSelect: document.getElementById('providerSelect'),
             apiKeyInput: document.getElementById('apiKeyInput'),
             apiKeyGroup: document.getElementById('apiKeyGroup'),
@@ -31,6 +36,8 @@ class AIOrchestrator {
             saveApiKeyBtn: document.getElementById('saveApiKey'),
             cancelSettingsBtn: document.getElementById('cancelSettings'),
             configBtn: document.getElementById('configBtn'),
+            historyBtn: document.getElementById('historyBtn'),
+            clearHistoryBtn: document.getElementById('clearHistoryBtn'),
             taskInput: document.getElementById('taskInput'),
             systemPrompt: document.getElementById('systemPrompt'),
             orchestrateBtn: document.getElementById('orchestrateBtn'),
@@ -55,6 +62,8 @@ class AIOrchestrator {
         this.elements.cancelSettingsBtn.addEventListener('click', () => this.hideSettingsModal());
         this.elements.settingsModalClose.addEventListener('click', () => this.hideSettingsModal());
         this.elements.configBtn.addEventListener('click', () => this.openSettings());
+        this.elements.historyBtn.addEventListener('click', () => this.openHistory());
+        this.elements.clearHistoryBtn.addEventListener('click', () => this.clearHistory());
         this.elements.orchestrateBtn.addEventListener('click', () => this.startOrchestration());
         this.elements.stopBtn.addEventListener('click', () => this.stopOrchestration());
         this.elements.exportBtn.addEventListener('click', () => this.exportResults());
@@ -80,6 +89,29 @@ class AIOrchestrator {
             this.enableCanvas = e.target.checked;
             this.toggleCanvasContainer();
         });
+
+        // Auto-save task text on input (debounced to avoid excessive writes)
+        let saveTaskTimer = null;
+        this.elements.taskInput.addEventListener('input', () => {
+            clearTimeout(saveTaskTimer);
+            saveTaskTimer = setTimeout(() => {
+                localStorage.setItem('last_task_input', this.elements.taskInput.value);
+            }, 500);
+        });
+
+        // Ctrl+Enter keyboard shortcut to start orchestration
+        this.elements.taskInput.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                e.preventDefault();
+                if (!this.isRunning) this.startOrchestration();
+            }
+        });
+    }
+
+    // Restore last task text from localStorage
+    restoreLastTask() {
+        const saved = localStorage.getItem('last_task_input');
+        if (saved) this.elements.taskInput.value = saved;
     }
 
     // Settings Management
@@ -490,6 +522,9 @@ class AIOrchestrator {
     }
 
     displayExecutionResult(task, result) {
+        // Track results for history saving
+        this.currentSessionResults.push({ task, result });
+
         const item = document.createElement('div');
         item.className = `result-item ${result.success ? 'success' : 'error'}`;
 
@@ -499,16 +534,43 @@ class AIOrchestrator {
         const titleSpan = document.createElement('span');
         titleSpan.textContent = task.title;
 
+        const headerRight = document.createElement('div');
+        headerRight.className = 'd-flex align-items-center gap-2';
+
         const timeSmall = document.createElement('small');
         timeSmall.className = 'text-muted';
         timeSmall.textContent = new Date(result.timestamp).toLocaleTimeString();
 
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'btn btn-outline-secondary btn-sm py-0 px-1';
+        copyBtn.title = 'Copy to clipboard';
+        copyBtn.innerHTML = '<i class="fas fa-copy"></i>';
+        const rawText = result.success ? result.result : `Error: ${result.error}`;
+        copyBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(rawText).then(() => {
+                copyBtn.innerHTML = '<i class="fas fa-check"></i>';
+                setTimeout(() => { copyBtn.innerHTML = '<i class="fas fa-copy"></i>'; }, 1500);
+            }).catch(() => {
+                copyBtn.innerHTML = '<i class="fas fa-times"></i>';
+                setTimeout(() => { copyBtn.innerHTML = '<i class="fas fa-copy"></i>'; }, 1500);
+            });
+        });
+
+        headerRight.appendChild(timeSmall);
+        headerRight.appendChild(copyBtn);
+
         header.appendChild(titleSpan);
-        header.appendChild(timeSmall);
+        header.appendChild(headerRight);
 
         const content = document.createElement('div');
         content.className = 'result-content';
-        content.textContent = result.success ? result.result : `Error: ${result.error}`;
+
+        if (result.success && typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
+            content.innerHTML = DOMPurify.sanitize(marked.parse(result.result));
+            content.classList.add('markdown-body');
+        } else {
+            content.textContent = rawText;
+        }
 
         item.appendChild(header);
         item.appendChild(content);
@@ -572,6 +634,108 @@ class AIOrchestrator {
         }
     }
 
+    // History Management
+    saveToHistory(mainTask, results) {
+        const MAX_HISTORY = 20;
+        const FALLBACK_HISTORY_SIZE = MAX_HISTORY / 2;
+        const history = this.loadHistory();
+        const entry = {
+            id: Date.now(),
+            date: new Date().toISOString(),
+            task: mainTask,
+            results
+        };
+        history.unshift(entry);
+        if (history.length > MAX_HISTORY) history.length = MAX_HISTORY;
+        try {
+            localStorage.setItem('orchestration_history', JSON.stringify(history));
+        } catch (e) {
+            // Storage quota may be exceeded; drop oldest entries
+            history.splice(FALLBACK_HISTORY_SIZE);
+            try { localStorage.setItem('orchestration_history', JSON.stringify(history)); } catch (_) {}
+        }
+    }
+
+    loadHistory() {
+        try {
+            return JSON.parse(localStorage.getItem('orchestration_history') || '[]');
+        } catch {
+            return [];
+        }
+    }
+
+    openHistory() {
+        const history = this.loadHistory();
+        this.elements.historyList.innerHTML = '';
+
+        if (history.length === 0) {
+            this.elements.historyEmpty.classList.remove('d-none');
+        } else {
+            this.elements.historyEmpty.classList.add('d-none');
+            history.forEach(entry => {
+                const card = document.createElement('div');
+                card.className = 'card mb-3';
+
+                const cardHeader = document.createElement('div');
+                cardHeader.className = 'card-header d-flex justify-content-between align-items-center';
+
+                const taskTitle = document.createElement('div');
+                taskTitle.className = 'text-truncate me-2 fw-semibold';
+                taskTitle.style.maxWidth = '70%';
+                taskTitle.textContent = entry.task;
+                taskTitle.title = entry.task;
+
+                const headerRight = document.createElement('div');
+                headerRight.className = 'd-flex align-items-center gap-2 flex-shrink-0';
+
+                const dateSmall = document.createElement('small');
+                dateSmall.className = 'text-muted';
+                dateSmall.textContent = new Date(entry.date).toLocaleString();
+
+                const loadBtn = document.createElement('button');
+                loadBtn.className = 'btn btn-outline-primary btn-sm';
+                loadBtn.innerHTML = '<i class="fas fa-redo me-1"></i>Load';
+                loadBtn.addEventListener('click', () => {
+                    this.elements.taskInput.value = entry.task;
+                    localStorage.setItem('last_task_input', entry.task);
+                    bootstrap.Modal.getInstance(this.elements.historyModal)?.hide();
+                });
+
+                headerRight.appendChild(dateSmall);
+                headerRight.appendChild(loadBtn);
+                cardHeader.appendChild(taskTitle);
+                cardHeader.appendChild(headerRight);
+
+                const cardBody = document.createElement('div');
+                cardBody.className = 'card-body py-2';
+
+                const summary = document.createElement('small');
+                summary.className = 'text-muted';
+                const successCount = entry.results.filter(r => r.result.success).length;
+                summary.textContent = `${entry.results.length} task(s) — ${successCount} succeeded`;
+
+                cardBody.appendChild(summary);
+                card.appendChild(cardHeader);
+                card.appendChild(cardBody);
+                this.elements.historyList.appendChild(card);
+            });
+        }
+
+        const existing = bootstrap.Modal.getInstance(this.elements.historyModal);
+        if (existing) {
+            existing.show();
+        } else {
+            new bootstrap.Modal(this.elements.historyModal).show();
+        }
+    }
+
+    clearHistory() {
+        if (!confirm('Clear all orchestration history?')) return;
+        localStorage.removeItem('orchestration_history');
+        this.elements.historyList.innerHTML = '';
+        this.elements.historyEmpty.classList.remove('d-none');
+    }
+
     // Main Orchestration Logic
     async startOrchestration() {
         const mainTask = this.elements.taskInput.value.trim();
@@ -590,6 +754,7 @@ class AIOrchestrator {
         }
 
         this.abortController = new AbortController();
+        this.currentSessionResults = [];
 
         try {
             this.isRunning = true;
@@ -617,6 +782,10 @@ class AIOrchestrator {
                 alert(`Error during orchestration: ${error.message}`);
             }
         } finally {
+            // Save completed session to history
+            if (this.currentSessionResults.length > 0) {
+                this.saveToHistory(mainTask, this.currentSessionResults);
+            }
             this.isRunning = false;
             this.abortController = null;
             this.elements.orchestrateBtn.disabled = false;
