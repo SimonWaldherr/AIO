@@ -1,4 +1,28 @@
 // AI Universal Orchestrator
+
+// Named constants
+const MAX_FILE_SIZE_BYTES    = 512 * 1024; // 512 KB per attached file
+const MAX_SEARCH_ITERATIONS  = 3;          // max web-search loops per task
+const MAX_SEARCH_RESULTS     = 5;          // max search results to include
+
+// Provider display labels (single source of truth)
+const PROVIDER_LABELS = {
+    openai:    'OpenAI',
+    anthropic: 'Claude',
+    google:    'Gemini',
+    ollama:    'Ollama',
+    custom:    'Custom'
+};
+
+// Provider configuration hints (single source of truth)
+const PROVIDER_HINTS = {
+    openai:    { key: 'OpenAI API key (starts with sk- or sk-proj-)', model: 'e.g. gpt-4o, gpt-4-turbo',              baseUrl: 'https://api.openai.com' },
+    anthropic: { key: 'Anthropic API key (starts with sk-ant-)',      model: 'e.g. claude-3-5-sonnet-20241022',        baseUrl: 'https://api.anthropic.com' },
+    google:    { key: 'Google AI Studio API key',                     model: 'e.g. gemini-1.5-pro, gemini-2.0-flash',  baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai' },
+    ollama:    { key: 'Not required for local Ollama',                model: 'e.g. llama3.1, mistral',                  baseUrl: 'http://localhost:11434' },
+    custom:    { key: 'API key (if required by your endpoint)',       model: 'Model name for your endpoint',            baseUrl: 'https://your-endpoint.example.com' }
+};
+
 class AIOrchestrator {
     constructor() {
         this.tasks = [];
@@ -7,8 +31,11 @@ class AIOrchestrator {
         this.executionMode = 'serial';
         this.enableCodeExecution = false;
         this.enableCanvas = false;
+        this.enableWebSearch = false;
         this.abortController = null;
         this.currentSessionResults = [];
+        this.attachedFiles = [];   // [{name, content, type}]
+        this.attachedImage = null; // {dataUrl, name}
 
         this.initializeDOM();
         this.setupEventListeners();
@@ -25,6 +52,7 @@ class AIOrchestrator {
             historyModal: document.getElementById('historyModal'),
             historyList: document.getElementById('historyList'),
             historyEmpty: document.getElementById('historyEmpty'),
+            // Primary LLM
             providerSelect: document.getElementById('providerSelect'),
             apiKeyInput: document.getElementById('apiKeyInput'),
             apiKeyGroup: document.getElementById('apiKeyGroup'),
@@ -33,17 +61,45 @@ class AIOrchestrator {
             baseUrlInput: document.getElementById('baseUrlInput'),
             modelInput: document.getElementById('modelInput'),
             modelHint: document.getElementById('modelHint'),
+            // Secondary LLM
+            providerSelect2: document.getElementById('providerSelect2'),
+            apiKeyInput2: document.getElementById('apiKeyInput2'),
+            apiKeyGroup2: document.getElementById('apiKeyGroup2'),
+            apiKeyHint2: document.getElementById('apiKeyHint2'),
+            baseUrlInput2: document.getElementById('baseUrlInput2'),
+            modelInput2: document.getElementById('modelInput2'),
+            modelHint2: document.getElementById('modelHint2'),
+            // Search & Routing
+            searchProvider: document.getElementById('searchProvider'),
+            searchApiKey: document.getElementById('searchApiKey'),
+            searchKeyGroup: document.getElementById('searchKeyGroup'),
+            routingConfig: document.getElementById('routingConfig'),
+            // Modal buttons
             saveApiKeyBtn: document.getElementById('saveApiKey'),
             cancelSettingsBtn: document.getElementById('cancelSettings'),
             configBtn: document.getElementById('configBtn'),
             historyBtn: document.getElementById('historyBtn'),
             clearHistoryBtn: document.getElementById('clearHistoryBtn'),
+            // Task Input
             taskInput: document.getElementById('taskInput'),
             systemPrompt: document.getElementById('systemPrompt'),
             orchestrateBtn: document.getElementById('orchestrateBtn'),
             stopBtn: document.getElementById('stopBtn'),
             exportBtn: document.getElementById('exportBtn'),
             clearBtn: document.getElementById('clearBtn'),
+            // Attachments
+            attachFileBtn: document.getElementById('attachFileBtn'),
+            attachImageBtn: document.getElementById('attachImageBtn'),
+            fileInput: document.getElementById('fileInput'),
+            imageInput: document.getElementById('imageInput'),
+            attachedFiles: document.getElementById('attachedFiles'),
+            imagePreview: document.getElementById('imagePreview'),
+            previewImg: document.getElementById('previewImg'),
+            imageName: document.getElementById('imageName'),
+            removeImageBtn: document.getElementById('removeImageBtn'),
+            // Web search toggle
+            enableWebSearchChk: document.getElementById('enableWebSearch'),
+            // Panels
             taskBreakdown: document.getElementById('taskBreakdown'),
             taskCount: document.getElementById('taskCount'),
             executionResults: document.getElementById('executionResults'),
@@ -71,6 +127,10 @@ class AIOrchestrator {
 
         // Provider change updates UI hints
         this.elements.providerSelect.addEventListener('change', () => this.updateProviderUI());
+        this.elements.providerSelect2.addEventListener('change', () => this.updateProviderUI2());
+
+        // Search provider change
+        this.elements.searchProvider.addEventListener('change', () => this.updateSearchProviderUI());
 
         // Execution mode radio buttons
         document.querySelectorAll('input[name="executionMode"]').forEach(radio => {
@@ -89,6 +149,26 @@ class AIOrchestrator {
             this.enableCanvas = e.target.checked;
             this.toggleCanvasContainer();
         });
+
+        this.elements.enableWebSearchChk.addEventListener('change', (e) => {
+            this.enableWebSearch = e.target.checked;
+        });
+
+        // File attachment
+        this.elements.attachFileBtn.addEventListener('click', () => this.elements.fileInput.click());
+        this.elements.attachImageBtn.addEventListener('click', () => this.elements.imageInput.click());
+
+        this.elements.fileInput.addEventListener('change', (e) => {
+            Array.from(e.target.files).forEach(f => this.handleFileUpload(f));
+            e.target.value = '';
+        });
+
+        this.elements.imageInput.addEventListener('change', (e) => {
+            if (e.target.files[0]) this.handleImageUpload(e.target.files[0]);
+            e.target.value = '';
+        });
+
+        this.elements.removeImageBtn.addEventListener('click', () => this.removeImage());
 
         // Auto-save task text on input (debounced to avoid excessive writes)
         let saveTaskTimer = null;
@@ -116,6 +196,7 @@ class AIOrchestrator {
 
     // Settings Management
     loadSettings() {
+        // Primary LLM
         const provider = localStorage.getItem('ai_provider') || 'openai';
         const apiKey = localStorage.getItem('openai_api_key') || '';
         const baseUrl = localStorage.getItem('ai_base_url') || '';
@@ -126,18 +207,31 @@ class AIOrchestrator {
         this.elements.baseUrlInput.value = baseUrl;
         this.elements.modelInput.value = model;
 
+        // Secondary LLM
+        this.elements.providerSelect2.value = localStorage.getItem('ai_provider_2') || '';
+        this.elements.apiKeyInput2.value = localStorage.getItem('ai_api_key_2') || '';
+        this.elements.baseUrlInput2.value = localStorage.getItem('ai_base_url_2') || '';
+        this.elements.modelInput2.value = localStorage.getItem('ai_model_2') || '';
+
+        // Tools
+        this.elements.searchProvider.value = localStorage.getItem('ai_search_provider') || 'none';
+        this.elements.searchApiKey.value = localStorage.getItem('ai_search_key') || '';
+
         this.updateProviderUI();
+        this.updateProviderUI2();
+        this.updateSearchProviderUI();
+        this.buildRoutingUI();
     }
 
     saveSettings() {
+        // Primary LLM
         const provider = this.elements.providerSelect.value;
         const apiKey = this.elements.apiKeyInput.value.trim();
         const baseUrl = this.elements.baseUrlInput.value.trim();
         const model = this.elements.modelInput.value.trim();
 
-        // Validate API key based on provider
         if (provider !== 'ollama' && !apiKey) {
-            alert('Please enter an API key for the selected provider.');
+            alert('Please enter an API key for the Primary LLM provider.');
             return;
         }
 
@@ -145,6 +239,24 @@ class AIOrchestrator {
         localStorage.setItem('openai_api_key', apiKey);
         localStorage.setItem('ai_base_url', baseUrl);
         localStorage.setItem('ai_model', model);
+
+        // Secondary LLM
+        // Note: API keys are stored in localStorage by design — this app is purely
+        // client-side and keys are never transmitted to any server other than the
+        // chosen AI provider. Users are advised of this in Settings and the README.
+        const provider2 = this.elements.providerSelect2.value;
+        localStorage.setItem('ai_provider_2', provider2);
+        localStorage.setItem('ai_api_key_2', this.elements.apiKeyInput2.value.trim());
+        localStorage.setItem('ai_base_url_2', this.elements.baseUrlInput2.value.trim());
+        localStorage.setItem('ai_model_2', this.elements.modelInput2.value.trim());
+
+        // Tools
+        localStorage.setItem('ai_search_provider', this.elements.searchProvider.value);
+        // Search API key stored locally — same policy as LLM API keys above.
+        localStorage.setItem('ai_search_key', this.elements.searchApiKey.value.trim());
+
+        // Routing
+        this.saveRoutingFromUI();
 
         this.hideSettingsModal();
     }
@@ -156,6 +268,99 @@ class AIOrchestrator {
             baseUrl: localStorage.getItem('ai_base_url') || '',
             model: localStorage.getItem('ai_model') || ''
         };
+    }
+
+    // Return settings for 'primary' or 'secondary' profile
+    getProfile(key) {
+        if (key === 'secondary') {
+            return {
+                provider: localStorage.getItem('ai_provider_2') || '',
+                apiKey: localStorage.getItem('ai_api_key_2') || '',
+                baseUrl: localStorage.getItem('ai_base_url_2') || '',
+                model: localStorage.getItem('ai_model_2') || ''
+            };
+        }
+        return {
+            provider: localStorage.getItem('ai_provider') || 'openai',
+            apiKey: localStorage.getItem('openai_api_key') || '',
+            baseUrl: localStorage.getItem('ai_base_url') || '',
+            model: localStorage.getItem('ai_model') || ''
+        };
+    }
+
+    isProfileConfigured(key) {
+        const p = this.getProfile(key);
+        if (!p.provider) return false;
+        if (p.provider !== 'ollama' && !p.apiKey) return false;
+        return true;
+    }
+
+    getRouting() {
+        try {
+            return JSON.parse(localStorage.getItem('ai_routing') || '{}');
+        } catch {
+            return {};
+        }
+    }
+
+    getProfileForTask(task) {
+        if (!this.isProfileConfigured('secondary')) return 'primary';
+        const routing = this.getRouting();
+        return routing[task.type] === 'secondary' ? 'secondary' : 'primary';
+    }
+
+    // Build Task Routing UI inside the routingTab
+    buildRoutingUI() {
+        const container = this.elements.routingConfig;
+        if (!container) return;
+        container.innerHTML = '';
+        const taskTypes = ['research', 'analysis', 'creation', 'execution', 'review'];
+        const routing = this.getRouting();
+        const secondaryConfigured = this.isProfileConfigured('secondary');
+
+        if (!secondaryConfigured) {
+            const note = document.createElement('p');
+            note.className = 'text-muted small';
+            note.textContent = 'Configure a Secondary LLM first to enable task routing.';
+            container.appendChild(note);
+            return;
+        }
+
+        taskTypes.forEach(type => {
+            const row = document.createElement('div');
+            row.className = 'row align-items-center mb-2';
+
+            const labelCol = document.createElement('div');
+            labelCol.className = 'col-5 text-capitalize';
+            labelCol.textContent = type;
+
+            const selectCol = document.createElement('div');
+            selectCol.className = 'col-7';
+
+            const select = document.createElement('select');
+            select.className = 'form-select form-select-sm';
+            select.dataset.taskType = type;
+
+            ['primary', 'secondary'].forEach(opt => {
+                const o = document.createElement('option');
+                o.value = opt;
+                o.textContent = opt === 'primary' ? 'Primary LLM' : 'Secondary LLM';
+                if ((routing[type] || 'primary') === opt) o.selected = true;
+                select.appendChild(o);
+            });
+
+            selectCol.appendChild(select);
+            row.appendChild(labelCol);
+            row.appendChild(selectCol);
+            container.appendChild(row);
+        });
+    }
+
+    saveRoutingFromUI() {
+        const selects = this.elements.routingConfig.querySelectorAll('select[data-task-type]');
+        const routing = {};
+        selects.forEach(sel => { routing[sel.dataset.taskType] = sel.value; });
+        localStorage.setItem('ai_routing', JSON.stringify(routing));
     }
 
     checkApiKey() {
@@ -181,26 +386,35 @@ class AIOrchestrator {
     }
 
     openSettings() {
+        this.loadSettings();
         this.showSettingsModal();
     }
 
     updateProviderUI() {
         const provider = this.elements.providerSelect.value;
-        const hints = {
-            openai:    { key: 'OpenAI API key (starts with sk- or sk-proj-)', model: 'e.g. gpt-4o, gpt-4-turbo', baseUrl: 'https://api.openai.com' },
-            anthropic: { key: 'Anthropic API key (starts with sk-ant-)',      model: 'e.g. claude-3-5-sonnet-20241022',  baseUrl: 'https://api.anthropic.com' },
-            ollama:    { key: 'Not required for local Ollama',                 model: 'e.g. llama3.1, mistral',           baseUrl: 'http://localhost:11434' },
-            custom:    { key: 'API key (if required by your endpoint)',        model: 'Model name for your endpoint',     baseUrl: 'https://your-endpoint.example.com' }
-        };
-
-        const info = hints[provider] || hints.openai;
+        const info = PROVIDER_HINTS[provider] || PROVIDER_HINTS.openai;
         this.elements.apiKeyHint.textContent = info.key;
         this.elements.modelHint.textContent = `Leave blank for default. ${info.model}`;
         this.elements.baseUrlInput.placeholder = info.baseUrl;
 
-        // Show/hide API key field for Ollama
         const needsKey = provider !== 'ollama';
         this.elements.apiKeyGroup.classList.toggle('d-none', !needsKey);
+    }
+
+    updateProviderUI2() {
+        const provider = this.elements.providerSelect2.value;
+        const info = PROVIDER_HINTS[provider] || {};
+        if (this.elements.apiKeyHint2) this.elements.apiKeyHint2.textContent = info.key || '';
+        if (this.elements.modelHint2)  this.elements.modelHint2.textContent  = info.model ? `Leave blank for default. ${info.model}` : '';
+
+        const needsKey = provider && provider !== 'ollama';
+        if (this.elements.apiKeyGroup2) this.elements.apiKeyGroup2.classList.toggle('d-none', !needsKey);
+    }
+
+    updateSearchProviderUI() {
+        const provider = this.elements.searchProvider.value;
+        const needsKey = provider === 'brave';
+        this.elements.searchKeyGroup.classList.toggle('d-none', !needsKey);
     }
 
     // UI Toggle Functions
@@ -220,26 +434,37 @@ class AIOrchestrator {
     }
 
     // AI API Communication dispatcher
-    async callAI(messages, temperature = 0.7) {
-        const settings = this.getSettings();
+    async callAI(messages, temperature = 0.7, profileKey = 'primary', imageData = null) {
+        let profile = this.getProfile(profileKey);
+
+        // Fall back to primary if secondary is not configured
+        if (profileKey === 'secondary' && !this.isProfileConfigured('secondary')) {
+            profile = this.getProfile('primary');
+            profileKey = 'primary';
+        }
+
         const signal = this.abortController ? this.abortController.signal : undefined;
 
-        switch (settings.provider) {
+        switch (profile.provider) {
             case 'anthropic':
-                return this.callAnthropic(messages, temperature, settings, signal);
+                return this.callAnthropic(messages, temperature, profile, signal, imageData);
             case 'ollama':
             case 'custom':
-                return this.callOpenAICompat(messages, temperature, settings, signal);
+            case 'google':
+                return this.callOpenAICompat(messages, temperature, profile, signal, imageData);
             default:
-                return this.callOpenAI(messages, temperature, settings, signal);
+                return this.callOpenAI(messages, temperature, profile, signal, imageData);
         }
     }
 
-    async callOpenAI(messages, temperature, settings, signal) {
+    async callOpenAI(messages, temperature, settings, signal, imageData = null) {
         if (!settings.apiKey) throw new Error('No API key configured. Click Settings to add one.');
 
         const model = settings.model || 'gpt-4o';
         const baseUrl = (settings.baseUrl || 'https://api.openai.com').replace(/\/$/, '');
+
+        // Inject image into last user message if provided
+        const msgs = imageData ? this._injectImageOpenAI(messages, imageData) : messages;
 
         const response = await fetch(`${baseUrl}/v1/chat/completions`, {
             method: 'POST',
@@ -247,7 +472,7 @@ class AIOrchestrator {
                 'Authorization': `Bearer ${settings.apiKey}`,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ model, messages, temperature, max_tokens: 2000 }),
+            body: JSON.stringify({ model, messages: msgs, temperature, max_tokens: 4096 }),
             signal
         });
 
@@ -260,16 +485,19 @@ class AIOrchestrator {
         return data.choices[0].message.content;
     }
 
-    async callAnthropic(messages, temperature, settings, signal) {
+    async callAnthropic(messages, temperature, settings, signal, imageData = null) {
         if (!settings.apiKey) throw new Error('No API key configured. Click Settings to add one.');
 
         const model = settings.model || 'claude-3-5-sonnet-20241022';
         const baseUrl = (settings.baseUrl || 'https://api.anthropic.com').replace(/\/$/, '');
 
         const systemMsg = messages.find(m => m.role === 'system');
-        const chatMessages = messages.filter(m => m.role !== 'system');
+        let chatMessages = messages.filter(m => m.role !== 'system');
 
-        const body = { model, max_tokens: 2000, messages: chatMessages, temperature };
+        // Inject image into last user message if provided
+        if (imageData) chatMessages = this._injectImageAnthropic(chatMessages, imageData);
+
+        const body = { model, max_tokens: 4096, messages: chatMessages, temperature };
         if (systemMsg) body.system = systemMsg.content;
 
         const response = await fetch(`${baseUrl}/v1/messages`, {
@@ -292,19 +520,25 @@ class AIOrchestrator {
         return data.content[0].text;
     }
 
-    async callOpenAICompat(messages, temperature, settings, signal) {
-        const baseUrl = (settings.baseUrl || 'http://localhost:11434').replace(/\/$/, '');
-        const model = settings.model || 'llama3.1';
+    async callOpenAICompat(messages, temperature, settings, signal, imageData = null) {
+        const defaultBaseUrl = settings.provider === 'google'
+            ? 'https://generativelanguage.googleapis.com/v1beta/openai'
+            : 'http://localhost:11434';
+        const baseUrl = (settings.baseUrl || defaultBaseUrl).replace(/\/$/, '');
+        const defaultModel = settings.provider === 'google' ? 'gemini-2.0-flash' : 'llama3.1';
+        const model = settings.model || defaultModel;
 
         const headers = { 'Content-Type': 'application/json' };
         if (settings.apiKey) headers['Authorization'] = `Bearer ${settings.apiKey}`;
+
+        const msgs = imageData ? this._injectImageOpenAI(messages, imageData) : messages;
 
         let response;
         try {
             response = await fetch(`${baseUrl}/v1/chat/completions`, {
                 method: 'POST',
                 headers,
-                body: JSON.stringify({ model, messages, temperature, max_tokens: 2000 }),
+                body: JSON.stringify({ model, messages: msgs, temperature, max_tokens: 4096 }),
                 signal
             });
         } catch (networkError) {
@@ -324,6 +558,86 @@ class AIOrchestrator {
 
         const data = await response.json();
         return data.choices[0].message.content;
+    }
+
+    // Inject image into the last user message using OpenAI vision format
+    _injectImageOpenAI(messages, imageData) {
+        const msgs = messages.map(m => ({ ...m }));
+        const lastUser = [...msgs].reverse().find(m => m.role === 'user');
+        if (lastUser && typeof lastUser.content === 'string') {
+            lastUser.content = [
+                { type: 'text', text: lastUser.content },
+                { type: 'image_url', image_url: { url: imageData } }
+            ];
+        }
+        return msgs;
+    }
+
+    // Inject image into the last user message using Anthropic vision format
+    _injectImageAnthropic(messages, imageData) {
+        const msgs = messages.map(m => ({ ...m }));
+        const lastUser = [...msgs].reverse().find(m => m.role === 'user');
+        if (lastUser && typeof lastUser.content === 'string') {
+            const commaIdx = imageData.indexOf(',');
+            const prefix = commaIdx >= 0 ? imageData.substring(0, commaIdx) : '';
+            const b64 = commaIdx >= 0 ? imageData.substring(commaIdx + 1) : imageData;
+            const mediaTypeMatch = prefix.match(/:([\w/]+);/);
+            if (!mediaTypeMatch) {
+                console.warn(`_injectImageAnthropic: could not parse media type from data URL prefix "${prefix}"; defaulting to image/jpeg`);
+            }
+            const mediaType = mediaTypeMatch ? mediaTypeMatch[1] : 'image/jpeg';
+            lastUser.content = [
+                { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
+                { type: 'text', text: lastUser.content }
+            ];
+        }
+        return msgs;
+    }
+
+    // Web Search
+    async performWebSearch(query) {
+        const provider = localStorage.getItem('ai_search_provider') || 'wikipedia';
+        try {
+            if (provider === 'wikipedia') {
+                const url = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=${MAX_SEARCH_RESULTS}&format=json&origin=*`;
+                const response = await fetch(url);
+                if (!response.ok) return `Search failed: HTTP ${response.status}`;
+                const data = await response.json();
+                const results = data.query?.search || [];
+                if (!results.length) return 'No results found.';
+                return results.map(r => {
+                    // Use DOMParser for robust, safe extraction of plain text from the HTML snippet
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(r.snippet, 'text/html');
+                    const plainSnippet = doc.body.textContent || '';
+                    return `**${r.title}**: ${plainSnippet}`;
+                }).join('\n\n');
+            } else if (provider === 'brave') {
+                const apiKey = localStorage.getItem('ai_search_key') || '';
+                if (!apiKey) return 'Brave Search API key not configured. Add it in Settings → Tools & Search.';
+                const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${MAX_SEARCH_RESULTS}`;
+                const response = await fetch(url, {
+                    headers: { 'Accept': 'application/json', 'X-Subscription-Token': apiKey }
+                });
+                if (!response.ok) return `Search failed: HTTP ${response.status}`;
+                const data = await response.json();
+                const results = data.web?.results || [];
+                return results.slice(0, MAX_SEARCH_RESULTS).map(r =>
+                    `**${r.title}**: ${r.description}\n${r.url}`
+                ).join('\n\n');
+            }
+        } catch (e) {
+            return `Search error: ${e.message}`;
+        }
+        return 'Web search is disabled. Enable it in Settings → Tools & Search.';
+    }
+
+    // File Context
+    getFileContext() {
+        if (!this.attachedFiles.length) return '';
+        return this.attachedFiles.map(f =>
+            `--- Attached file: ${f.name} (${f.type}) ---\n${f.content}`
+        ).join('\n\n');
     }
 
     // Task Breakdown
@@ -366,7 +680,7 @@ class AIOrchestrator {
     }
 
     // Task Execution
-    async executeTask(task, previousResults = []) {
+    async executeTask(task, previousResults = [], profileKey = 'primary') {
         const systemPrompt = this.elements.systemPrompt.value ||
             'You are a helpful AI assistant. Complete the given task thoroughly and provide clear, actionable results.';
 
@@ -377,11 +691,23 @@ class AIOrchestrator {
               ).join('\n\n')
             : '';
 
+        const fileContext = this.getFileContext();
+        const imageData = this.attachedImage ? this.attachedImage.dataUrl : null;
+
+        const searchInstructions = this.enableWebSearch
+            ? '\n\nYou have access to web search. When you need current information, include [SEARCH: your search query] in your response. You will receive the results and may search up to 3 times per task.'
+            : '';
+
+        const codeInstructions = this.enableCodeExecution
+            ? "\n\nYou can execute JavaScript code. If you need to run code, provide it in a code block marked with 'EXECUTE_JS:' followed by the code."
+            : '';
+
         const messages = [
             {
                 role: 'system',
-                content: systemPrompt + (this.enableCodeExecution ?
-                    '\n\nYou can execute JavaScript code. If you need to run code, provide it in a code block marked with \'EXECUTE_JS:\' followed by the code.' : '')
+                content: systemPrompt + codeInstructions + searchInstructions +
+                    (fileContext ? `\n\nAttached data files for reference:\n${fileContext}` : '') +
+                    (imageData ? '\n\nAn image has been attached for your analysis.' : '')
             },
             {
                 role: 'user',
@@ -390,13 +716,38 @@ class AIOrchestrator {
         ];
 
         try {
-            const result = await this.callAI(messages);
+            let result = await this.callAI(messages, 0.7, profileKey, imageData);
+
+            // Web search tool loop — up to MAX_SEARCH_ITERATIONS iterations
+            if (this.enableWebSearch) {
+                let iterations = 0;
+                while (result.includes('[SEARCH:') && iterations < MAX_SEARCH_ITERATIONS) {
+                    const searchMatches = [...result.matchAll(/\[SEARCH:\s*([^\]]+)\]/g)];
+                    if (!searchMatches.length) break;
+
+                    let searchResults = '';
+                    for (const match of searchMatches) {
+                        const query = match[1].trim();
+                        const sr = await this.performWebSearch(query);
+                        searchResults += `\n\n### Search results for "${query}":\n${sr}`;
+                    }
+
+                    messages.push({ role: 'assistant', content: result });
+                    messages.push({
+                        role: 'user',
+                        content: `Here are the search results:${searchResults}\n\nPlease continue with your analysis based on these results.`
+                    });
+
+                    result = await this.callAI(messages, 0.7, profileKey);
+                    iterations++;
+                }
+            }
 
             if (this.enableCodeExecution && result.includes('EXECUTE_JS:')) {
                 return await this.executeWithCode(result, task);
             }
 
-            return { success: true, result, timestamp: new Date().toISOString() };
+            return { success: true, result, timestamp: new Date().toISOString(), profile: profileKey };
         } catch (error) {
             if (error.name === 'AbortError') {
                 return { success: false, error: 'Stopped by user.', timestamp: new Date().toISOString() };
@@ -463,6 +814,80 @@ class AIOrchestrator {
         this.elements.codeOutput.textContent = output;
     }
 
+    // File / Image Management
+    handleFileUpload(file) {
+        if (file.size > MAX_FILE_SIZE_BYTES) {
+            alert(`File "${file.name}" exceeds the ${Math.round(MAX_FILE_SIZE_BYTES / 1024)} KB limit and was not added.`);
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            this.attachedFiles.push({ name: file.name, content: e.target.result, type: file.type || 'text/plain' });
+            this.renderAttachedFiles();
+        };
+        reader.readAsText(file);
+    }
+
+    handleImageUpload(file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            this.attachedImage = { dataUrl: e.target.result, name: file.name };
+            this.renderImagePreview();
+        };
+        reader.readAsDataURL(file);
+    }
+
+    removeFile(index) {
+        this.attachedFiles.splice(index, 1);
+        this.renderAttachedFiles();
+    }
+
+    removeImage() {
+        this.attachedImage = null;
+        this.elements.imagePreview.classList.add('d-none');
+        this.elements.previewImg.src = '';
+    }
+
+    renderAttachedFiles() {
+        if (!this.attachedFiles.length) {
+            this.elements.attachedFiles.classList.add('d-none');
+            return;
+        }
+        this.elements.attachedFiles.classList.remove('d-none');
+        this.elements.attachedFiles.innerHTML = '';
+        this.attachedFiles.forEach((file, index) => {
+            const chip = document.createElement('span');
+            chip.className = 'badge bg-secondary me-1 mb-1 file-chip';
+
+            const icon = document.createElement('i');
+            icon.className = 'fas fa-file me-1';
+
+            const nameNode = document.createTextNode(file.name);
+
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'btn-close btn-close-white ms-1';
+            removeBtn.style.cssText = 'font-size:0.55em;vertical-align:middle;';
+            removeBtn.setAttribute('aria-label', 'Remove');
+            removeBtn.addEventListener('click', () => this.removeFile(index));
+
+            chip.appendChild(icon);
+            chip.appendChild(nameNode);
+            chip.appendChild(removeBtn);
+            this.elements.attachedFiles.appendChild(chip);
+        });
+    }
+
+    renderImagePreview() {
+        if (!this.attachedImage) {
+            this.elements.imagePreview.classList.add('d-none');
+            return;
+        }
+        this.elements.imagePreview.classList.remove('d-none');
+        this.elements.previewImg.src = this.attachedImage.dataUrl;
+        this.elements.imageName.textContent = this.attachedImage.name;
+    }
+
     displayTaskBreakdown(tasks) {
         this.tasks = tasks;
         this.elements.taskCount.textContent = `${tasks.length} tasks`;
@@ -485,7 +910,7 @@ class AIOrchestrator {
             statusDiv.className = 'task-status';
 
             const badge = document.createElement('span');
-            badge.className = 'badge bg-secondary';
+            badge.className = 'badge status-badge bg-secondary';
             badge.textContent = 'Pending';
 
             const meta = document.createElement('small');
@@ -501,23 +926,38 @@ class AIOrchestrator {
         });
     }
 
-    updateTaskStatus(taskId, status) {
+    updateTaskStatus(taskId, status, profileKey = null) {
         const taskElement = document.querySelector(`[data-task-id="${taskId}"]`);
         if (!taskElement) return;
 
         taskElement.className = `task-item ${status}`;
-        const statusBadge = taskElement.querySelector('.badge');
+        const statusBadge = taskElement.querySelector('.badge.status-badge');
 
         const statusMap = {
-            running:   { text: 'Running',   cls: 'badge bg-primary' },
-            completed: { text: 'Completed', cls: 'badge bg-success' },
-            error:     { text: 'Error',     cls: 'badge bg-danger'  }
+            running:   { text: 'Running',   cls: 'badge status-badge bg-primary' },
+            completed: { text: 'Completed', cls: 'badge status-badge bg-success' },
+            error:     { text: 'Error',     cls: 'badge status-badge bg-danger'  }
         };
 
         const s = statusMap[status];
-        if (s) {
+        if (s && statusBadge) {
             statusBadge.textContent = s.text;
             statusBadge.className = s.cls;
+        }
+
+        // LLM badge
+        if (profileKey) {
+            let llmBadge = taskElement.querySelector('.llm-badge');
+            if (!llmBadge) {
+                llmBadge = document.createElement('span');
+                llmBadge.className = 'badge llm-badge ms-1';
+                const statusDiv = taskElement.querySelector('.task-status');
+                if (statusDiv) statusDiv.appendChild(llmBadge);
+            }
+            const profile = this.getProfile(profileKey);
+            const providerLabel = PROVIDER_LABELS[profile.provider] || profile.provider || 'LLM';
+            llmBadge.textContent = profileKey === 'secondary' ? `2° ${providerLabel}` : `1° ${providerLabel}`;
+            llmBadge.className = `badge llm-badge ms-1 ${profileKey === 'secondary' ? 'bg-warning text-dark' : 'bg-info text-dark'}`;
         }
     }
 
@@ -536,6 +976,16 @@ class AIOrchestrator {
 
         const headerRight = document.createElement('div');
         headerRight.className = 'd-flex align-items-center gap-2';
+
+        // LLM indicator
+        if (result.profile) {
+            const profile = this.getProfile(result.profile);
+            const label = PROVIDER_LABELS[profile.provider] || profile.provider || 'LLM';
+            const llmTag = document.createElement('span');
+            llmTag.className = `badge ${result.profile === 'secondary' ? 'bg-warning text-dark' : 'bg-info text-dark'}`;
+            llmTag.textContent = label;
+            headerRight.appendChild(llmTag);
+        }
 
         const timeSmall = document.createElement('small');
         timeSmall.className = 'text-muted';
@@ -799,14 +1249,15 @@ class AIOrchestrator {
         for (const task of this.tasks) {
             if (this.abortController?.signal.aborted) break;
 
-            this.updateTaskStatus(task.id, 'running');
-            const result = await this.executeTask(task, previousResults);
+            const profileKey = this.getProfileForTask(task);
+            this.updateTaskStatus(task.id, 'running', profileKey);
+            const result = await this.executeTask(task, previousResults, profileKey);
 
             if (result.success) {
-                this.updateTaskStatus(task.id, 'completed');
+                this.updateTaskStatus(task.id, 'completed', profileKey);
                 previousResults.push({ task, result });
             } else {
-                this.updateTaskStatus(task.id, 'error');
+                this.updateTaskStatus(task.id, 'error', profileKey);
             }
 
             this.displayExecutionResult(task, result);
@@ -818,13 +1269,14 @@ class AIOrchestrator {
 
     async executeTasksParallel() {
         const promises = this.tasks.map(async (task) => {
-            this.updateTaskStatus(task.id, 'running');
-            const result = await this.executeTask(task);
+            const profileKey = this.getProfileForTask(task);
+            this.updateTaskStatus(task.id, 'running', profileKey);
+            const result = await this.executeTask(task, [], profileKey);
 
             if (result.success) {
-                this.updateTaskStatus(task.id, 'completed');
+                this.updateTaskStatus(task.id, 'completed', profileKey);
             } else {
-                this.updateTaskStatus(task.id, 'error');
+                this.updateTaskStatus(task.id, 'error', profileKey);
             }
 
             this.displayExecutionResult(task, result);
